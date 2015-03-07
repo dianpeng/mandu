@@ -530,6 +530,7 @@ public:
 
     Mandu* NewMandu( const std::string& section_key , const std::string& key );
     Mandu* NewMandu( const std::string& key );
+    Mandu* NewMandu();
 
     void FreeMandu( Mandu* mandu ) {
         mandu_pool_.Drop(mandu);
@@ -605,6 +606,7 @@ private:
         ManduSection():
             enabled(true)
         {}
+
     };
 
     typedef std::map<std::string,ManduSection> SectionMap;
@@ -619,6 +621,11 @@ private:
     // substitution commands for that part will be utilized as well. Otherwise the
     // corresponding section will be skiped silently.
     SectionMap section_var_;
+
+    // For those mandu that _doesn't_ have any related key or section, we just put it
+    // into the orphand list. To record these mandus are useful,since we need to clear
+    // those mandus once we are done
+    std::list<Mandu*> orphand_mandus_;
 
 
     // Tokenizer for this executor
@@ -644,6 +651,7 @@ void Executor::ReportError( std::string* error, const char* format , ... ) {
 
 bool Executor::Cook( const std::string& text , std::string* output , std::string* error ) {
     static const std::size_t kDefaultSize = 4096; // 4KB
+    output->clear();
     output->reserve( kDefaultSize );
 
     for( std::size_t i = 0 ; i < text.size() ; ++i ) {
@@ -710,12 +718,20 @@ void Executor::Clear() {
         }
     }
     section_var_.clear();
+
     // Global scope
     for( ManduMap::iterator i = global_var_.begin() ;
             i != global_var_.end() ; ++i ) {
         mandu_pool_.Drop( (*i).second );
     }
     global_var_.clear();
+
+    // Clear the orphand list
+    for( std::list<Mandu*>::iterator i = orphand_mandus_.begin() ;
+            i != orphand_mandus_.end() ; ++i ) {
+        mandu_pool_.Drop( *i );
+    }
+    orphand_mandus_.clear();
 }
 
 Mandu* Executor::NewMandu( const std::string& section_key , const std::string& key ) {
@@ -756,6 +772,11 @@ Mandu* Executor::NewMandu( const std::string& key ) {
     return i.first->second;
 }
 
+Mandu* Executor::NewMandu() {
+    Mandu* mandu = mandu_pool_.Grab();
+    orphand_mandus_.push_back( mandu );
+    return mandu;
+}
 
 bool Executor::LookUpVariable( const std::string& section_name, const std::string& key , Mandu* mandu ) const {
     if( section_name.empty() ) {
@@ -1097,7 +1118,7 @@ bool Executor::ExecuteBody( const Mandu& dollar_sign , std::string* output , std
         if( cha == '\\' ) {
             if( IsBodyEscapeChar(i+1) ) {
                 // It is the escape character we need to skip here
-                output->push_back(cha);
+                output->push_back( tokenizer_.source().at(i+1) );
                 ++i;
             } else {
                 output->push_back(cha);
@@ -1315,6 +1336,10 @@ Mandu* SoupMaker::NewMandu( const std::string& section_key , const std::string& 
 
 Mandu* SoupMaker::NewMandu( const std::string& key ) {
     return impl_->NewMandu(key);
+}
+
+Mandu* SoupMaker::NewMandu() {
+    return impl_->NewMandu();
 }
 
 bool SoupMaker::Cook( const std::string& text , std::string* output , std::string* error ) {

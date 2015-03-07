@@ -1,5 +1,6 @@
 #ifndef MANDU_H_
 #define MANDU_H_
+
 #include <cstddef>
 #include <string>
 #include <vector>
@@ -166,6 +167,7 @@ public:
     // Create a new Mandu that binds not type
     Mandu* NewMandu( const std::string& section , const std::string& key );
     Mandu* NewMandu( const std::string& key );
+    Mandu* NewMandu();
 
     // The section related operations
     bool EnableSection( const std::string& section_name );

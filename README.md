@@ -3,7 +3,7 @@ embeded page and simple text substituion.
 
 A very small template embedded engine for C++. It has absolute minimum function but yet powerful. It basically has 3 types of value, string, number and list. User could use Variable to enable runtime feature. Therefore , syntatically, it has 4 types. 
 
-String is just quoted string , it will be converted into the output without moditification (well,except escape characters). Number will be converted into the string and the list will be first flattened and then concatenated into a single line of string. 
+String is just quoted string , it will be converted into the output without moditification (well,except escape characters). Number will be converted into the string and the list that is included inside of other list will be concatenated into string. So a list [1,2,3,[4,5,6]] is actually [1,2,3,"456"].
 eg:
 [1,2,3,"Hello World"] --> 123HelloWorld.
 Also suppose you register a variable called P inside of the C++ which has value "ABD", then the follwing example :
