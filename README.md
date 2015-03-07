@@ -28,7 +28,7 @@ This sentence forms a section based sentence. The section name is followed by se
 
 How to embed such template sentence ?Easy, using backtick. 
 Eg:
-<HTML> <Head>`MyHead`</Head> </HTML>
+```<HTML> <Head>`MyHead`</Head> </HTML>```
 
 Then this text will be evaluated to replace MyHead to corresponding value in C++. If you want to have backtick inside of your HTML, just use \` to escape it, don't forget \ itself needs to be escaped as well. 
 
