@@ -1,4 +1,3 @@
-Mandu is a very small embedded C++ template engine. It can be used for small
 embeded page and simple text substituion.
 =====================================
 
