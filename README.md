@@ -30,7 +30,7 @@ How to embed such template sentence ?Easy, using backtick.
 Eg:
 ```<HTML> <Head>`MyHead`</Head> </HTML>```
 
-Then this text will be evaluated to replace MyHead to corresponding value in C++. If you want to have backtick inside of your HTML, just use \` to escape it, don't forget \ itself needs to be escaped as well. 
+Then this text will be evaluated to replace MyHead to corresponding value in C++. If you want to have backtick inside of your HTML, just use ```\```` to escape it, don't forget \ itself needs to be escaped as well. 
 
 Have fun :)
 
