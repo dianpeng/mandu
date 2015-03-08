@@ -1236,11 +1236,23 @@ bool Executor::DoExecute( std::string* output, std::string* error ) {
     do {
         if( !Execute(&ol,error) )
             return false;
-        if( tokenizer_.cur_lexme().token == TK_END ) {
-            break;
+        switch( tokenizer_.cur_lexme().token ) {
+            case TK_STRING:
+            case TK_NUMBER:
+            case TK_VARIABLE:
+            case TK_LSQR:
+            case TK_SECTION_START:
+                break;
+            case TK_END:
+                goto done;
+            default:
+                // error comes here now
+                ReportError(error,"Unexpected token here!");
+                return false;
         }
     } while( true );
 
+done:
     // Stringtify all the input inside of the string table
     Concatenate(ol,output);
     return true;
