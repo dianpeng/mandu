@@ -3,7 +3,8 @@ embeded page and simple text substituion.
 
 A very small template embedded engine for C++. It has absolute minimum function but yet powerful. It basically has 3 types of value, string, number and list. User could use Variable to enable runtime feature. Therefore , syntatically, it has 4 types. 
 
-String is just quoted string , it will be converted into the output without moditification (well,except escape characters). Number will be converted into the string and the list that is included inside of other list will be concatenated into string. So a list [1,2,3,[4,5,6]] is actually [1,2,3,"456"].
+String is just quoted string , it will be converted into the output without moditification (well,except escape characters). Number will be converted into the string and the list that is included inside of other list will be flatten. Eg , [1,2,3,[4,5]] is actually [1,2,3,4,5].
+
 eg:
 [1,2,3,"Hello World"] --> 123HelloWorld.
 Also suppose you register a variable called P inside of the C++ which has value "ABD", then the follwing example :
@@ -31,6 +32,11 @@ Eg:
 ```<HTML> <Head>`MyHead`</Head> </HTML>```
 
 Then this text will be evaluated to replace MyHead to corresponding value in C++. If you want to have backtick inside of your HTML, just use ```\```` to escape it, don't forget \ itself needs to be escaped as well. 
+
+In side of the post process body, it is allowed to have a recursive code body . Eg :
+
+`[1,2,3] { <table> $ <tr>`[4,5]{$}`</tr> </table> } will be evaluated into <table>1<tr>45</tr></table><table>2<tr>45</tr></table>. You could nested recursive expression as much as you want and also recursive expression supports
+section selector as well. 
 
 Have fun :)
 

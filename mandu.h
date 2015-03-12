@@ -3,7 +3,7 @@
 
 #include <cstddef>
 #include <string>
-#include <vector>
+#include <list>
 #include <cassert>
 
 // Mandu
@@ -47,10 +47,10 @@ public:
         return number_;
     }
 
-    const std::vector<Mandu*>& ToList() const {
+    const std::list<Mandu*>& ToList() const {
         assert( type() == TYPE_LIST );
         return *reinterpret_cast<
-            const std::vector<Mandu*>*>( mandu_list_buf_ );
+            const std::list<Mandu*>*>( mandu_list_buf_ );
     }
 
     std::string ConvertToString() const;
@@ -67,7 +67,7 @@ public:
         number_ = number;
     }
 
-    void SetList( const std::vector<Mandu*>& list );
+    void SetList( const std::list<Mandu*>& list );
 
     int type() const {
         return type_;
@@ -79,9 +79,9 @@ public:
                 string_buf_)->swap(*string);
     }
 
-    void Swap( std::vector<Mandu*>* mandu_list ) {
+    void Swap( std::list<Mandu*>* mandu_list ) {
         assert( type() == TYPE_LIST );
-        reinterpret_cast<std::vector<Mandu*>*>(
+        reinterpret_cast<std::list<Mandu*>*>(
                 mandu_list_buf_)->swap(*mandu_list);
     }
 
@@ -103,7 +103,7 @@ private:
     void Detach() {
         // Explicit call destructor seems not working with fullname( namespace prefix )
         using std::string;
-        using std::vector;
+        using std::list;
 
         switch( type_ ) {
             case TYPE_NONE:
@@ -114,7 +114,7 @@ private:
                 return;
             case TYPE_LIST:
                 reinterpret_cast<
-                    std::vector<Mandu*>*>(mandu_list_buf_)->~vector<Mandu*>();
+                    std::list<Mandu*>*>(mandu_list_buf_)->~list<Mandu*>();
                 return;
             default:
                 assert(0);
@@ -140,13 +140,13 @@ private:
         SetString(str);
     }
 
-    Mandu( const std::vector<Mandu*>& list ) {
+    Mandu( const std::list<Mandu*>& list ) {
         SetList(list);
     }
 
 private:
     union {
-        char mandu_list_buf_[sizeof( std::vector<Mandu*> )];
+        char mandu_list_buf_[sizeof( std::list<Mandu*> )];
         char string_buf_[sizeof(std::string)];
         int number_;
     };

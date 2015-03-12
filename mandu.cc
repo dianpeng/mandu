@@ -539,7 +539,10 @@ public:
     void Clear();
 
     bool Cook( const std::string& text , std::string* output , std::string* error );
+
 private:
+    int CookSegment( const std::string& text , int position , std::string* appender, std::string* error );
+
     void ReportError( std::string* error , const char* format , ... );
 
     bool ParseString( Mandu* output , std::string* error );
@@ -564,8 +567,11 @@ private:
     bool ParseList( const std::string& section, std::list<Mandu*>* outputs, std::string* error );
 
     bool ExecuteList( const std::string& section , std::list<std::string>* output , std::string* error );
+    bool ExecuteListBody( const std::string& source, int position , int* offset ,
+            const std::list<Mandu*>& lists, std::list<std::string>* output , std::string* error );
     bool ExecuteAtomic( const std::string& section , std::list<std::string>* output , std::string* error );
-    bool ExecuteBody( const Mandu& dollar_value , std::string* output , std::string* error );
+    bool ExecuteBody( const Mandu& dollar_value , const std::string& source, int position , int* offset ,
+            std::string* output , std::string* error );
     bool Execute( std::list<std::string>* output , std::string* error );
 
     // Executes the template with the output for a list , at very last
@@ -648,6 +654,21 @@ void Executor::ReportError( std::string* error, const char* format , ... ) {
     error->assign( formatter.str() );
 }
 
+int Executor::CookSegment( const std::string& text, int position , std::string* output, std::string* error ) {
+    assert( text[position] == '`' );
+    tokenizer_.Bind(text,position+1);
+    if( !DoExecute(output,error) ) {
+        return -1;
+    } else {
+        if( tokenizer_.cur_lexme().token != TK_END ) {
+            ReportError(error,"Expect \"`\" to end the code body");
+            return -1;
+        } else {
+            return tokenizer_.position();
+        }
+    }
+    UNREACHABLE(return -1);
+}
 
 bool Executor::Cook( const std::string& text , std::string* output , std::string* error ) {
     static const std::size_t kDefaultSize = 4096; // 4KB
@@ -663,18 +684,10 @@ bool Executor::Cook( const std::string& text , std::string* output , std::string
             }
         }
         if( text[i] == '`' ) {
-            // Start of our code execution here
-            tokenizer_.Bind(text,i+1);
-            if(!DoExecute( output , error) ) {
+            int ret = CookSegment(text,i,output,error);
+            if( ret <0 )
                 return false;
-            }
-            if( tokenizer_.cur_lexme().token != TK_END ) {
-                ReportError(error,"Expect \"`\" to end the code body");
-                return false;
-            } else {
-                // Do not need to add one here,since the for loop will do this
-                i = tokenizer_.position();
-            }
+            i = static_cast<std::size_t>(ret);
         } else {
             output->push_back( text[i] );
         }
@@ -1044,6 +1057,32 @@ fail:
     return false;
 }
 
+bool Executor::ExecuteListBody( const std::string& source, int position , int* offset ,
+        const std::list<Mandu*>& list , std::list<std::string>* output , std::string* error ) {
+    std::string dummy;
+
+    for( std::list<Mandu*>::const_iterator ib = list.begin() ; ib != list.end() ; ++ib ) {
+        output->push_back(dummy);
+        std::string* temp = &(output->back());
+        const Mandu* m = *ib;
+        if( m->type() == Mandu::TYPE_LIST ) {
+            // This is a list, just executing this list again
+            std::list<std::string> list_output;
+            if(!ExecuteListBody(source,position,offset,
+                        m->ToList(),&list_output,error))
+                return false;
+            // Concatenate the string list into the temporary slots in output
+            Concatenate(list_output,temp);
+            continue;
+        } else {
+            if(!ExecuteBody( *m , source , position , offset , temp , error )) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 bool Executor::ExecuteList( const std::string& section , std::list<std::string>* outputs , std::string* error ) {
     assert( tokenizer_.cur_lexme().token == TK_LSQR );
     std::list<Mandu*> list;
@@ -1052,25 +1091,14 @@ bool Executor::ExecuteList( const std::string& section , std::list<std::string>*
 
     // Check wether we need to execute the body or just output the string here
     if( tokenizer_.cur_lexme().token == TK_LBRA ) {
-        std::string dummy;
+        tokenizer_.Move();
+        int start_position = tokenizer_.position();
+        int end_position = -1;
 
-        int beg_pos = tokenizer_.position();
-        int end_pos = -1;
-
-        for( std::list<Mandu*>::iterator ib = list.begin() ; ib != list.end() ; ++ib ) {
-            outputs->push_back(dummy);
-            std::string* temp = &(outputs->back());
-            if( !ExecuteBody( **ib , temp , error ) ) {
-                goto fail;
-            }
-            if( end_pos == -1 ) {
-                end_pos = tokenizer_.position();
-            }
-            tokenizer_.Set(beg_pos);
-        }
-
-        assert( end_pos != -1 );
-        tokenizer_.Set(end_pos);
+        if( !ExecuteListBody(tokenizer_.source(),start_position,
+                    &end_position,list,outputs,error) )
+            goto fail;
+        tokenizer_.Set(end_position);
     } else {
         // Just dump the list into the outptus string buffer is fine
         for( std::list<Mandu*>::iterator ib = list.begin() ; ib != list.end() ; ++ib ) {
@@ -1092,12 +1120,18 @@ bool Executor::ExecuteAtomic( const std::string& section , std::list<std::string
         goto fail;
 
     if( tokenizer_.cur_lexme().token == TK_LBRA ) {
+        tokenizer_.Move();
+        int start_position = tokenizer_.position();
+        int end_position = -1;
+
         outputs->push_back(std::string());
         std::string* temp = &(outputs->back());
-        if(!ExecuteBody(*atomic,temp,error)) {
+        if(!ExecuteBody(*atomic,tokenizer_.source(),start_position,
+                    &end_position,temp,error)) {
             goto fail;
         }
         mandu_pool_.Drop(atomic);
+        tokenizer_.Set(end_position);
         return true;
     } else {
         outputs->push_back( atomic->ConvertToString() );
@@ -1110,11 +1144,10 @@ fail:
     return false;
 }
 
-bool Executor::ExecuteBody( const Mandu& dollar_sign , std::string* output , std::string* error ) {
-    assert( tokenizer_.cur_lexme().token == TK_LBRA );
-    tokenizer_.Move();
-    for( std::size_t i = tokenizer_.position() ; i < tokenizer_.source().size() ; ++i ) {
-        int cha = tokenizer_.source().at(i);
+bool Executor::ExecuteBody( const Mandu& dollar_sign , const std::string& source , int position ,
+        int* offset , std::string* output , std::string* error ) {
+    for( std::size_t i = position ; i < source.size() ; ++i ) {
+        int cha = source.at(i);
         if( cha == '\\' ) {
             if( IsBodyEscapeChar(i+1) ) {
                 // It is the escape character we need to skip here
@@ -1127,11 +1160,22 @@ bool Executor::ExecuteBody( const Mandu& dollar_sign , std::string* output , std
             if( cha == '$' ) {
                 // Do the substitution here
                 output->append(dollar_sign.ConvertToString());
+            } else if( cha == '`' ) {
+                // Call Cook again however we need to save the current
+                // tokenizer_ context to resume the usage later on
+                Tokenizer tk(tokenizer_);
+                int ret = CookSegment( tokenizer_.source() , i , output , error );
+                if( ret < 0 )
+                    return false;
+                else {
+                    tokenizer_ = tk;
+                }
+                i = static_cast<std::size_t>(ret);
             } else {
                 // End of the stream here
                 if( cha == '}' ) {
                     // End of the body expression here. Just return here
-                    tokenizer_.Set( i+1 );
+                    *offset = i+1;
                     return true;
                 }
                 output->push_back(cha);
@@ -1259,12 +1303,12 @@ done:
 }
 } //namespace detail
 
-void Mandu::SetList( const std::vector<Mandu*>& l ) {
+void Mandu::SetList( const std::list<Mandu*>& l ) {
     Detach();
     type_ = TYPE_LIST;
-    std::vector<Mandu*>* out = ::new (mandu_list_buf_) std::vector<Mandu*>();
-    for( std::size_t i = 0 ; i < l.size() ; ++i ) {
-        out->push_back( l[i] );
+    std::list<Mandu*>* out = ::new (mandu_list_buf_) std::list<Mandu*>();
+    for( std::list<Mandu*>::const_iterator i = l.begin() ; i != l.end() ; ++i ) {
+        out->push_back( *i );
     }
 }
 
@@ -1301,9 +1345,9 @@ std::string Mandu::ConvertToString() const {
         case TYPE_LIST:
             {
                 std::string output;
-                const std::vector<Mandu*>& l = ToList();
-                for( std::size_t i = 0 ; i < l.size() ; ++i ) {
-                    l[i]->AppendString(&output);
+                const std::list<Mandu*>& l = ToList();
+                for( std::list<Mandu*>::const_iterator ib = l.begin() ; ib != l.end() ; ++ib ) {
+                    (*ib)->AppendString(&output);
                 }
                 return output;
             }
