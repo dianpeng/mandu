@@ -83,8 +83,6 @@ bool IsExecutorStringLiteralEscapeChar( int cha ) {
     }
 }
 
-const char* GetTokenName( int token_id );
-
 class Tokenizer {
 public:
     Tokenizer( const std::string& source , int position ) :
