@@ -1,5 +1,5 @@
 #include "mandu.h"
-#include <list>
+#include <vector>
 #include <map>
 #include <cerrno>
 #include <cstring>
@@ -560,17 +560,17 @@ private:
     // processed. Additionally, for element that is a list, the outputs array will
     // be pushed on top of it.
     int ParseListElement( const std::string& section , Mandu* from ,
-            Mandu* to , std::list<Mandu*>* outputs , std::string* error );
+            Mandu* to , std::vector<Mandu*>* outputs , std::string* error );
 
-    bool ParseList( const std::string& section, std::list<Mandu*>* outputs, std::string* error );
+    bool ParseList( const std::string& section, std::vector<Mandu*>* outputs, std::string* error );
 
-    bool ExecuteList( const std::string& section , std::list<std::string>* output , std::string* error );
+    bool ExecuteList( const std::string& section , std::vector<std::string>* output , std::string* error );
     bool ExecuteListBody( const std::string& source, int position , int* offset ,
-            const std::list<Mandu*>& lists, std::list<std::string>* output , std::string* error );
-    bool ExecuteAtomic( const std::string& section , std::list<std::string>* output , std::string* error );
+            const std::vector<Mandu*>& lists, std::vector<std::string>* output , std::string* error );
+    bool ExecuteAtomic( const std::string& section , std::vector<std::string>* output , std::string* error );
     bool ExecuteBody( const Mandu& dollar_value , const std::string& source, int position , int* offset ,
             std::string* output , std::string* error );
-    bool Execute( std::list<std::string>* output , std::string* error );
+    bool Execute( std::vector<std::string>* output , std::string* error );
 
     // Executes the template with the output for a list , at very last
     // we will start to do concatenation
@@ -578,7 +578,7 @@ private:
 
     bool LookUpVariable( const std::string& section_name , const std::string& variable_name , Mandu* mandu ) const;
 
-    void Concatenate( const std::list<std::string>& input, std::string* output );
+    void Concatenate( const std::vector<std::string>& input, std::string* output );
 
 private:
     bool IsBodyEscapeChar( int position ) {
@@ -629,7 +629,7 @@ private:
     // For those mandu that _doesn't_ have any related key or section, we just put it
     // into the orphand list. To record these mandus are useful,since we need to clear
     // those mandus once we are done
-    std::list<Mandu*> orphand_mandus_;
+    std::vector<Mandu*> orphand_mandus_;
 
 
     // Tokenizer for this executor
@@ -738,7 +738,7 @@ void Executor::Clear() {
     global_var_.clear();
 
     // Clear the orphand list
-    for( std::list<Mandu*>::iterator i = orphand_mandus_.begin() ;
+    for( std::vector<Mandu*>::iterator i = orphand_mandus_.begin() ;
             i != orphand_mandus_.end() ; ++i ) {
         mandu_pool_.Drop( *i );
     }
@@ -940,7 +940,7 @@ bool Executor::ParseAtomic( const std::string& section , Mandu* val , std::strin
 }
 
 int Executor::ParseListElement( const std::string& section , Mandu* from , Mandu* to ,
-       std::list<Mandu*>* output , std::string* error  ) {
+       std::vector<Mandu*>* output , std::string* error  ) {
     // ListElement means a single element in the list, it optionally can be a range value or
     // a single value. The single value could be an atomic value or another list
     switch( tokenizer_.cur_lexme().token ) {
@@ -987,7 +987,7 @@ int Executor::ParseListElement( const std::string& section , Mandu* from , Mandu
 
 }
 
-bool Executor::ParseList( const std::string& section , std::list<Mandu*>* outputs , std::string* error ) {
+bool Executor::ParseList( const std::string& section , std::vector<Mandu*>* outputs , std::string* error ) {
     assert( tokenizer_.cur_lexme().token == TK_LSQR );
     tokenizer_.Move();
     // Quick test for empty list and then report error
@@ -1048,7 +1048,7 @@ bool Executor::ParseList( const std::string& section , std::list<Mandu*>* output
     } while(true);
     return true;
 fail:
-    for( std::list<Mandu*>::iterator i = outputs->begin() ;  i != outputs->end() ; ++i ) {
+    for( std::vector<Mandu*>::iterator i = outputs->begin() ;  i != outputs->end() ; ++i ) {
         mandu_pool_.Drop( *i );
     }
     outputs->clear();
@@ -1056,16 +1056,16 @@ fail:
 }
 
 bool Executor::ExecuteListBody( const std::string& source, int position , int* offset ,
-        const std::list<Mandu*>& list , std::list<std::string>* output , std::string* error ) {
+        const std::vector<Mandu*>& list , std::vector<std::string>* output , std::string* error ) {
     std::string dummy;
 
-    for( std::list<Mandu*>::const_iterator ib = list.begin() ; ib != list.end() ; ++ib ) {
+    for( std::vector<Mandu*>::const_iterator ib = list.begin() ; ib != list.end() ; ++ib ) {
         output->push_back(dummy);
         std::string* temp = &(output->back());
         const Mandu* m = *ib;
         if( m->type() == Mandu::TYPE_LIST ) {
             // This is a list, just executing this list again
-            std::list<std::string> list_output;
+            std::vector<std::string> list_output;
             if(!ExecuteListBody(source,position,offset,
                         m->ToList(),&list_output,error))
                 return false;
@@ -1081,9 +1081,9 @@ bool Executor::ExecuteListBody( const std::string& source, int position , int* o
     return true;
 }
 
-bool Executor::ExecuteList( const std::string& section , std::list<std::string>* outputs , std::string* error ) {
+bool Executor::ExecuteList( const std::string& section , std::vector<std::string>* outputs , std::string* error ) {
     assert( tokenizer_.cur_lexme().token == TK_LSQR );
-    std::list<Mandu*> list;
+    std::vector<Mandu*> list;
     if( !ParseList(section,&list,error) )
         return false;
 
@@ -1099,20 +1099,20 @@ bool Executor::ExecuteList( const std::string& section , std::list<std::string>*
         tokenizer_.Set(end_position);
     } else {
         // Just dump the list into the outptus string buffer is fine
-        for( std::list<Mandu*>::iterator ib = list.begin() ; ib != list.end() ; ++ib ) {
+        for( std::vector<Mandu*>::iterator ib = list.begin() ; ib != list.end() ; ++ib ) {
             outputs->push_back( (*ib)->ConvertToString() );
         }
     }
     return true;
 
 fail:
-    for( std::list<Mandu*>::iterator i = list.begin() ;  i != list.end() ; ++i ) {
+    for( std::vector<Mandu*>::iterator i = list.begin() ;  i != list.end() ; ++i ) {
         mandu_pool_.Drop( *i );
     }
     return false;
 }
 
-bool Executor::ExecuteAtomic( const std::string& section , std::list<std::string>* outputs , std::string* error ) {
+bool Executor::ExecuteAtomic( const std::string& section , std::vector<std::string>* outputs , std::string* error ) {
     Mandu* atomic = mandu_pool_.Grab();
     if( !ParseAtomic(section,atomic,error) )
         goto fail;
@@ -1185,7 +1185,7 @@ bool Executor::ExecuteBody( const Mandu& dollar_sign , const std::string& source
     return false;
 }
 
-bool Executor::Execute( std::list<std::string>* output , std::string* error ) {
+bool Executor::Execute( std::vector<std::string>* output , std::string* error ) {
     Mandu* section_key = mandu_pool_.Grab();
     std::string dummy;
 
@@ -1258,23 +1258,23 @@ fail:
     return false;
 }
 
-void Executor::Concatenate( const std::list<std::string>& input, std::string* output ) {
+void Executor::Concatenate( const std::vector<std::string>& input, std::string* output ) {
     // 1. First loop to checkout how many memory is needed for string
     std::size_t len = 0;
-    for( std::list<std::string>::const_iterator ib = input.begin() ;
+    for( std::vector<std::string>::const_iterator ib = input.begin() ;
             ib != input.end() ; ++ib ) {
         len += ib->size();
     }
 
     output->reserve(len+output->size());
-    for( std::list<std::string>::const_iterator ib = input.begin() ;
+    for( std::vector<std::string>::const_iterator ib = input.begin() ;
             ib != input.end() ; ++ib ) {
         output->append( *ib );
     }
 }
 
 bool Executor::DoExecute( std::string* output, std::string* error ) {
-    std::list<std::string> ol;
+    std::vector<std::string> ol;
     do {
         if( !Execute(&ol,error) )
             return false;
@@ -1301,11 +1301,11 @@ done:
 }
 } //namespace detail
 
-void Mandu::SetList( const std::list<Mandu*>& l ) {
+void Mandu::SetList( const std::vector<Mandu*>& l ) {
     Detach();
     type_ = TYPE_LIST;
-    std::list<Mandu*>* out = ::new (mandu_list_buf_) std::list<Mandu*>();
-    for( std::list<Mandu*>::const_iterator i = l.begin() ; i != l.end() ; ++i ) {
+    std::vector<Mandu*>* out = ::new (mandu_list_buf_) std::vector<Mandu*>();
+    for( std::vector<Mandu*>::const_iterator i = l.begin() ; i != l.end() ; ++i ) {
         out->push_back( *i );
     }
 }
@@ -1343,8 +1343,8 @@ std::string Mandu::ConvertToString() const {
         case TYPE_LIST:
             {
                 std::string output;
-                const std::list<Mandu*>& l = ToList();
-                for( std::list<Mandu*>::const_iterator ib = l.begin() ; ib != l.end() ; ++ib ) {
+                const std::vector<Mandu*>& l = ToList();
+                for( std::vector<Mandu*>::const_iterator ib = l.begin() ; ib != l.end() ; ++ib ) {
                     (*ib)->AppendString(&output);
                 }
                 return output;
