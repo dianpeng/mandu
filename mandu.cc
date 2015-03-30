@@ -1,11 +1,11 @@
 #include "mandu.h"
-#include <map>
 #include <cerrno>
 #include <cstring>
 #include <sstream>
 #include <cstdarg>
 #include <cstdlib>
 #include <cstdio>
+#include <algorithm>
 
 #define UNREACHABLE(x) \
    do { \
@@ -507,6 +507,173 @@ void ZoneAllocator<T>::Reclaim() {
     }
 }
 
+namespace {
+
+
+class VariableMap {
+public:
+    bool IsSectionEnabled( const std::string& section ) const;
+    bool SetSectionEnable( const std::string& section , bool value );
+    
+    Mandu* FindMandu( const std::string& section , const std::string& key ) const;
+    Mandu* FindMandu( const std::string& key ) const;
+
+    Mandu* InsertMandu( const std::string& key , Mandu* m );
+    Mandu* InsertMandu( const std::string& sec , const std::string& key , Mandu* m );
+
+    void Clear() {
+        kv_map_.clear();
+        section_map_.clear();
+        values_.clear();
+    }
+
+    // For traversal all the mandu 
+    std::size_t mandu_map_size() const {
+        return values_.size();
+    }
+
+    Mandu* mandu( std::size_t index ) {
+        return values_[index];
+    }
+
+private:
+    static const char kIndent = '$';
+
+    std::string MakeKeyValueKey( const std::string& section , const std::string& key ) const {
+        std::string ret(section);
+        ret.push_back( kIndent );
+        ret.append(key);
+        return ret;
+    }
+
+    struct KeyValuePair {
+        std::string key;
+        int value;
+        bool operator < ( const std::string& k ) const {
+            return key < k; 
+        }
+        KeyValuePair() : 
+            key(),
+            value(-1)
+        {}
+        KeyValuePair( const std::string& k , int v ) :
+            key(k),
+            value(v)
+        {}
+    };
+
+    struct SectionKey {
+        std::string section;
+        bool enable;
+        SectionKey():
+            section(),
+            enable(false)
+        {}
+
+        SectionKey( const std::string& s , bool e ) :
+            section(s),
+            enable(e)
+        {}
+
+        bool operator < ( const std::string& sec_key ) const {
+            return section < sec_key;
+        }
+    };
+
+    typedef std::vector< KeyValuePair > KeyValueMap;
+    typedef std::vector< SectionKey > SectionMap;
+    KeyValueMap kv_map_;
+    SectionMap section_map_;
+    std::vector<Mandu*> values_;
+};
+
+
+Mandu* VariableMap::InsertMandu( const std::string& sec , const std::string& key , Mandu* m ) {
+    // Find out if we have already put such section into our map
+    SectionMap::iterator sec_iter = std::lower_bound( 
+            section_map_.begin(),section_map_.end(),sec);
+    if( sec_iter == section_map_.end() || sec_iter->section != sec ) {
+        // Insert the section since we don't have such section
+        section_map_.insert( sec_iter, SectionKey(sec,true) );
+    }
+    // Now insert this value into the kv_map_
+    const std::string kv_key = MakeKeyValueKey(sec,key);
+    KeyValueMap::iterator kv_iter = std::lower_bound( 
+            kv_map_.begin(),kv_map_.end(),kv_key);
+    Mandu* ret = m;
+
+    if( kv_iter == kv_map_.end() || kv_iter->key != kv_key ) {
+        values_.push_back( m );
+        kv_map_.insert( kv_iter , KeyValuePair(kv_key,values_.size()-1) );
+    } else {
+        Mandu*& p = values_[kv_iter->value];
+        ret = p;
+        p = m;
+    }
+
+    return ret;
+}
+
+
+Mandu* VariableMap::InsertMandu( const std::string& key , Mandu* m ) {
+    Mandu* ret = m;
+    KeyValueMap::iterator kv_iter = std::lower_bound(
+            kv_map_.begin(),kv_map_.end(),key);
+    if( kv_iter == kv_map_.end() || kv_iter->key != key ) {
+        values_.push_back( m );
+        kv_map_.insert( kv_iter , KeyValuePair(key,values_.size()-1) );
+    } else {
+        Mandu*& p = values_[kv_iter->value];
+        ret = p;
+        p = m;
+    }
+    return ret;
+}
+
+Mandu* VariableMap::FindMandu( const std::string& section , const std::string& key ) const {
+    assert( IsSectionEnabled(section) );
+    const std::string kv_key = MakeKeyValueKey(section,key);
+
+    KeyValueMap::const_iterator iter = std::lower_bound( 
+            kv_map_.begin(),kv_map_.end(), kv_key );
+
+    if( iter == kv_map_.end() || iter->key != kv_key )
+        return NULL;
+    else {
+        return values_[iter->value];
+    }
+}
+
+Mandu* VariableMap::FindMandu( const std::string& key ) const {
+    KeyValueMap::const_iterator iter = std::lower_bound(
+            kv_map_.begin(),kv_map_.end(),key);
+
+    return (iter == kv_map_.end() || iter->key != key) ? NULL :
+        values_[iter->value];
+}
+
+bool VariableMap::IsSectionEnabled( const std::string& section ) const {
+    SectionMap::const_iterator iter = std::lower_bound(
+            section_map_.begin(), section_map_.end() , section );
+    if( iter == section_map_.end() || iter->section != section )
+        return false;
+    else {
+        return iter->enable;
+    }
+}
+
+bool VariableMap::SetSectionEnable( const std::string& section , bool value ) {
+    SectionMap::iterator iter = std::lower_bound(
+            section_map_.begin(), section_map_.end() , section );
+    if( iter == section_map_.end() || iter->section != section )
+        return false;
+    else {
+        iter->enable = value;
+        return true;
+    }
+}
+} // namespace
+
 class Executor {
 public:
     static const std::size_t kMemoryPoolInitialSize = 64;
@@ -602,28 +769,8 @@ private:
     // Internally manage all the mandu memory allocation
     ZoneAllocator<Mandu> mandu_pool_;
 
-    typedef std::map<std::string,Mandu*> ManduMap;
-    struct ManduSection {
-        bool enabled;
-        ManduMap mandu_map;
-        ManduSection():
-            enabled(true)
-        {}
-
-    };
-
-    typedef std::map<std::string,ManduSection> SectionMap;
-
-    // Global map stores variable that is default to global scope .If user doesn't
-    // specify any section options, then all the variable will be treated inside of
-    // the global variable scope.
-    ManduMap global_var_;
-
-    // SectionMap enable user to output text based on the section. If section is on,
-    // then the variable that is in that section will be allowed to be used , and the
-    // substitution commands for that part will be utilized as well. Otherwise the
-    // corresponding section will be skiped silently.
-    SectionMap section_var_;
+    // Map for holding the variables
+    VariableMap variable_map_;
 
     // For those mandu that _doesn't_ have any related key or section, we just put it
     // into the orphand list. To record these mandus are useful,since we need to clear
@@ -693,48 +840,25 @@ bool Executor::Cook( const std::string& text , std::string* output , std::string
 }
 
 bool Executor::IsSectionEnabled( const std::string& key ) const {
-    SectionMap::const_iterator i = section_var_.find(key);
-    return i == section_var_.end() ? false : i->second.enabled;
+    return variable_map_.IsSectionEnabled(key);
 }
 
 bool Executor::EnableSection( const std::string& key ) {
-    SectionMap::iterator i = section_var_.find(key);
-    if( i == section_var_.end() )
-        return false;
-    else {
-        i->second.enabled = true;
-        return true;
-    }
+    return variable_map_.SetSectionEnable(key,true);
 }
 
 bool Executor::DisableSection( const std::string& key ) {
-    SectionMap::iterator i = section_var_.find(key);
-    if( i == section_var_.end() )
-        return false;
-    else {
-        i->second.enabled = false;
-        return true;
-    }
+    return variable_map_.SetSectionEnable(key,false);
 }
 
 void Executor::Clear() {
-    // Delete all the value inside of the SoupMaker
-    for( SectionMap::iterator isec =
-            section_var_.begin() ; isec != section_var_.end() ; ++isec ) {
-        ManduMap& m = (*isec).second.mandu_map;
-        for( ManduMap::iterator imap =
-                m.begin() ; imap != m.end() ; ++imap ) {
-            mandu_pool_.Drop( (*imap).second );
-        }
-    }
-    section_var_.clear();
+    const int size = variable_map_.mandu_map_size();
 
-    // Global scope
-    for( ManduMap::iterator i = global_var_.begin() ;
-            i != global_var_.end() ; ++i ) {
-        mandu_pool_.Drop( (*i).second );
+    for( int i = 0 ; i < size ; ++i ) {
+        mandu_pool_.Drop( variable_map_.mandu(i) );
     }
-    global_var_.clear();
+
+    variable_map_.Clear();
 
     // Clear the orphand list
     for( std::vector<Mandu*>::iterator i = orphand_mandus_.begin() ;
@@ -745,41 +869,21 @@ void Executor::Clear() {
 }
 
 Mandu* Executor::NewMandu( const std::string& section_key , const std::string& key ) {
-    SectionMap::iterator i = section_var_.find( section_key );
-    ManduMap* m ;
-
-    if( i == section_var_.end() ) {
-        std::pair<SectionMap::iterator,bool> slot =
-            section_var_.insert( std::make_pair( section_key ,ManduSection()  ) );
-        m = &((slot.first->second).mandu_map);
-    } else {
-        m = &((i->second).mandu_map);
-    }
-
-    std::pair<
-        ManduMap::iterator,bool> iinsert = m->insert( std::make_pair(
-                    key,reinterpret_cast<Mandu*>(NULL)) );
-    if( iinsert.second ) {
-        iinsert.first->second = mandu_pool_.Grab();
-    } else {
-        // First delete the old mandu there
-        mandu_pool_.Drop( iinsert.first->second );
-        iinsert.first->second = mandu_pool_.Grab();
-    }
-    return iinsert.first->second;
+    Mandu* new_mandu = mandu_pool_.Grab();
+    Mandu* ret = variable_map_.InsertMandu( section_key , key , new_mandu );
+    if( ret != new_mandu ) {
+        mandu_pool_.Drop(ret);
+    } 
+    return new_mandu;
 }
 
 Mandu* Executor::NewMandu( const std::string& key ) {
-    std::pair<
-        ManduMap::iterator,bool> i = global_var_.insert( std::make_pair(
-                    key,reinterpret_cast<Mandu*>(NULL)) );
-    if( i.second ) {
-        i.first->second = mandu_pool_.Grab();
-    } else {
-        mandu_pool_.Drop( i.first->second );
-        i.first->second = mandu_pool_.Grab();
+    Mandu* new_mandu = mandu_pool_.Grab();
+    Mandu* ret = variable_map_.InsertMandu( key , new_mandu );
+    if( ret != new_mandu ) {
+        mandu_pool_.Drop(ret);
     }
-    return i.first->second;
+    return ret;
 }
 
 Mandu* Executor::NewMandu() {
@@ -789,30 +893,23 @@ Mandu* Executor::NewMandu() {
 }
 
 bool Executor::LookUpVariable( const std::string& section_name, const std::string& key , Mandu* mandu ) const {
-    if( section_name.empty() ) {
-        goto look_up_in_global;
-    } else {
-        SectionMap::const_iterator i = section_var_.find( section_name );
-        if( i == section_var_.end() )
-            goto look_up_in_global;
+    if( variable_map_.IsSectionEnabled(section_name) ) {
+        Mandu* ret = variable_map_.FindMandu( section_name , key );
+        if( ret == NULL )
+            goto look_up_global_variable;
         else {
-            ManduMap::const_iterator mandui = i->second.mandu_map.find( key );
-            if( mandui == i->second.mandu_map.end() )
-                goto look_up_in_global;
-            else {
-                mandu->Copy( *(mandui->second) );
-                return true;
-            }
+            mandu->Copy(*ret);
+            return true;
         }
-    }
-look_up_in_global:
-    // Lookup the variable in the global scope
-    ManduMap::const_iterator i = global_var_.find( key );
-    if( i != global_var_.end() ) {
-        mandu->Copy( *(i->second) );
-        return true;
-    } else {
+    } 
+
+look_up_global_variable:
+    Mandu* ret = variable_map_.FindMandu( key );
+    if( ret == NULL )
         return false;
+    else {
+        mandu->Copy(*mandu);
+        return true;
     }
 }
 
