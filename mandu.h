@@ -3,12 +3,8 @@
 
 #include <cstddef>
 #include <string>
-<<<<<<< HEAD
 #include <vector>
-=======
->>>>>>> 2f7f3053b0eaa94a47fc2bf3cf7e5018be2425bd
 #include <cassert>
-#include <vector>
 
 // Mandu
 // A very tiny C++ text template engine. Its goal is to provide a
