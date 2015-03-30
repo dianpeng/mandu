@@ -1,12 +1,11 @@
 #include "mandu.h"
-#include <vector>
-#include <map>
 #include <cerrno>
 #include <cstring>
 #include <sstream>
 #include <cstdarg>
 #include <cstdlib>
 #include <cstdio>
+#include <algorithm>
 
 #define UNREACHABLE(x) \
    do { \
@@ -507,6 +506,174 @@ void ZoneAllocator<T>::Reclaim() {
         p = p->next;
     }
 }
+
+namespace {
+
+
+class VariableMap {
+public:
+    bool IsSectionEnabled( const std::string& section );
+    bool SetSectionEnable( const std::string& section , bool value );
+    
+    Mandu* FindMandu( const std::string& section , const std::string& key );
+    Mandu* FindMandu( const std::string& key );
+
+    Mandu* InsertMandu( const std::string& key , Mandu* m );
+    Mandu* InsertMandu( const std::string& sec , const std::string& key , Mandu* m );
+
+    void Clear() {
+        kv_map_.clear();
+        section_map_.clear();
+        values_.clear();
+    }
+
+    // For traversal all the mandu 
+    std::size_t mandu_map_size() const {
+        return values_.size();
+    }
+
+    Mandu* mandu( std::size_t index ) {
+        return values_[index];
+    }
+
+private:
+    static const char kIndent = '$';
+
+    std::string MakeKeyValueKey( const std::string& section , const std::string& key ) {
+        std::string ret(section);
+        ret.push_back( kIndent );
+        ret.append(key);
+        return ret;
+    }
+
+    struct KeyValuePair {
+        std::string key;
+        int value;
+        bool operator < ( const std::string& k ) const {
+            return key < k; 
+        }
+        KeyValuePair() : 
+            key(),
+            value(-1)
+        {}
+        KeyValuePair( const std::string& k , int v ) :
+            key(k),
+            value(v)
+        {}
+    };
+
+    struct SectionKey {
+        std::string section;
+        bool enable;
+        SectionKey():
+            section(),
+            enable(false)
+        {}
+
+        SectionKey( const std::string& s , bool e ) :
+            section(s),
+            enable(e)
+        {}
+
+        bool operator < ( const std::string& sec_key ) const {
+            return section < sec_key;
+        }
+    };
+
+    typedef std::vector< KeyValuePair > KeyValueMap;
+    typedef std::vector< SectionKey > SectionMap;
+    KeyValueMap kv_map_;
+    SectionMap section_map_;
+    std::vector<Mandu*> values_;
+};
+
+
+Mandu* VariableMap::InsertMandu( const std::string& sec , const std::string& key , Mandu* m ) {
+    // Find out if we have already put such section into our map
+    SectionMap::iterator sec_iter = std::lower_bound( 
+            section_map_.begin(),section_map_.end(),sec);
+    if( sec_iter == section_map_.end() || sec_iter->section != sec ) {
+        // Insert the section since we don't have such section
+        section_map_.insert( sec_iter, SectionKey(sec,true) );
+    }
+    // Now insert this value into the kv_map_
+    const std::string kv_key = MakeKeyValueKey(sec,key);
+    KeyValueMap::iterator kv_iter = std::lower_bound( 
+            kv_map_.begin(),kv_map_.end(),kv_key);
+    Mandu* ret = m;
+
+    if( kv_iter->key == kv_key ) {
+        Mandu*& p = values_[kv_iter->value];
+        ret = p;
+        p = m;
+    } else {
+        values_.push_back( m );
+        kv_map_.insert( kv_iter , KeyValuePair(kv_key,values_.size()-1) );
+    }
+
+    return ret;
+}
+
+
+Mandu* VariableMap::InsertMandu( const std::string& key , Mandu* m ) {
+    Mandu* ret = m;
+    KeyValueMap::iterator kv_iter = std::lower_bound(
+            kv_map_.begin(),kv_map_.end(),key);
+    if( kv_iter->key == key ) {
+        Mandu*& p = values_[kv_iter->value];
+        ret = p;
+        p = m;
+    } else {
+        values_.push_back( m );
+        kv_map_.insert( kv_iter , KeyValuePair(key,values_.size()-1) );
+    }
+    return ret;
+}
+
+Mandu* VariableMap::FindMandu( const std::string& section , const std::string& key ) {
+    assert( IsSectionEnabled(section) );
+    const std::string kv_key = MakeKeyValueKey(section,key);
+
+    KeyValueMap::iterator iter = std::lower_bound( 
+            kv_map_.begin(),kv_map_.end(), kv_key );
+    if( iter == kv_map_.end() || iter->key != kv_key )
+        return NULL;
+    else {
+        return values_[iter->value];
+    }
+}
+
+Mandu* VariableMap::FindMandu( const std::string& key ) {
+    KeyValueMap::iterator iter = std::lower_bound(
+            kv_map_.begin(),kv_map_.end(),key);
+
+    return (iter == kv_map_.end() || iter->key != key) ? NULL :
+        values_[iter->value];
+}
+
+bool VariableMap::IsSectionEnabled( const std::string& section ) {
+    SectionMap::iterator iter = std::lower_bound(
+            section_map_.begin(), section_map_.end() , section );
+    if( iter == section_map_.end() || iter->section != section )
+        return false;
+    else {
+        return iter->enable;
+    }
+}
+
+bool VariableMap::SetSectionEnable( const std::string& section , bool value ) {
+    SectionMap::iterator iter = std::lower_bound(
+            section_map_.begin(), section_map_.end() , section );
+    if( iter == section_map_.end() || iter->section != section )
+        return false;
+    else {
+        iter->enable = value;
+        return true;
+    }
+}
+
+
+} // namespace
 
 class Executor {
 public:
